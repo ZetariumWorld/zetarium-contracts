@@ -6,6 +6,8 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /// @title Staking Platform (Factory + Pool)
 /// @notice Factory deploys staking pools where users can stake a token and earn APR rewards
@@ -20,6 +22,9 @@ contract StakingPlatform is Ownable(msg.sender) {
     
     /// @notice Treasury where pool creation fees are sent
     address public treasury;
+    
+    /// @notice Backend signer for stake quotes
+    address public quoteSigner;
 
     /// @notice Basic pool metadata stored in factory for discovery
     struct PoolMeta {
@@ -195,6 +200,12 @@ contract StakingPlatform is Ownable(msg.sender) {
         poolCreationFee = newFee;
         emit PoolCreationFeeSet(newFee);
     }
+    
+    /// @notice Set quote signer address (only owner)
+    /// @param _quoteSigner New quote signer address
+    function setQuoteSigner(address _quoteSigner) external onlyOwner {
+        quoteSigner = _quoteSigner;
+    }
 
     // --------- Create pool ---------
 
@@ -332,6 +343,9 @@ contract StakingPool is ReentrancyGuard {
         uint256 lastUpdate;    // timestamp of last reward update/claim/stake change
     }
     mapping(address => UserInfo) public users;
+    
+    // Nonce tracking for signature verification
+    mapping(address => uint256) public nonces;
 
     event Staked(address indexed user, uint256 amount);
     event Unstaked(address indexed user, uint256 amount);
@@ -439,6 +453,57 @@ contract StakingPool is ReentrancyGuard {
         _checkExpiration(); // Auto-deactivate if expired only
         require(active, "inactive");
         require(amount > 0, "zero");
+        _accrue(msg.sender);
+        users[msg.sender].amount += amount;
+        totalStaked += amount;
+        IERC20(stakingToken).safeTransferFrom(msg.sender, address(this), amount);
+        
+        // Notify factory about user staking (if first time in this pool)
+        factory._addUserToPool(msg.sender);
+        
+        _updateMirror();
+        emit Staked(msg.sender, amount);
+    }
+    
+    /// @notice Stake with backend signature verification (same pattern as VestingSale.buyWithQuote)
+    /// @param amount Amount to stake
+    /// @param deadline Signature expiration timestamp
+    /// @param nonce User's current nonce
+    /// @param signature Backend signature authorizing the stake
+    function stakeWithQuote(
+        uint256 amount,
+        uint256 deadline,
+        uint256 nonce,
+        bytes calldata signature
+    ) external nonReentrant {
+        _checkExpiration();
+        require(active, "inactive");
+        require(amount > 0, "zero");
+        require(block.timestamp <= deadline, "expired");
+        require(nonce == nonces[msg.sender], "nonce");
+        
+        // Verify signature from backend
+        address quoteSigner = factory.quoteSigner();
+        require(quoteSigner != address(0), "no-signer");
+        
+        bytes32 structHash = keccak256(
+            abi.encode(
+                keccak256("StakeQuote(address user,uint256 amount,uint256 deadline,uint256 nonce)"),
+                msg.sender,
+                amount,
+                deadline,
+                nonce
+            )
+        );
+        
+        bytes32 hash = MessageHashUtils.toEthSignedMessageHash(structHash);
+        address recovered = ECDSA.recover(hash, signature);
+        require(recovered == quoteSigner, "sig");
+        
+        // Increment nonce
+        nonces[msg.sender]++;
+        
+        // Perform stake
         _accrue(msg.sender);
         users[msg.sender].amount += amount;
         totalStaked += amount;
