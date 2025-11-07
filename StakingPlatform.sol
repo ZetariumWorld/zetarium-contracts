@@ -66,7 +66,9 @@ contract StakingPlatform is Ownable(msg.sender) {
         address rewardToken,
         uint256 aprBps,
         uint256 duration,
-        uint256 endTime
+        uint256 endTime,
+        address quoteSigner,
+        bytes signature
     );
 
     /// @notice Emitted when pool state mirrors change
@@ -89,6 +91,9 @@ contract StakingPlatform is Ownable(msg.sender) {
     
     /// @notice Emitted when pool creation fee is collected
     event FeeCollected(address indexed payer, uint256 amount);
+    
+    /// @notice Emitted when quote signer is changed
+    event QuoteSignerSet(address indexed oldSigner, address indexed newSigner);
 
     // --------- Constructor ---------
     
@@ -204,6 +209,7 @@ contract StakingPlatform is Ownable(msg.sender) {
     /// @notice Set quote signer address (only owner)
     /// @param _quoteSigner New quote signer address
     function setQuoteSigner(address _quoteSigner) external onlyOwner {
+        emit QuoteSignerSet(quoteSigner, _quoteSigner);
         quoteSigner = _quoteSigner;
     }
 
@@ -213,7 +219,8 @@ contract StakingPlatform is Ownable(msg.sender) {
         address stakingToken,
         uint256 aprBps,
         uint256 duration,
-        uint256 initialRewardAmount
+        uint256 initialRewardAmount,
+        bytes calldata signature
     ) external payable returns (uint256 poolId, address poolAddress) {
         require(msg.value >= poolCreationFee, "insufficient-fee");
         require(stakingToken != address(0), "stake=0");
@@ -259,7 +266,7 @@ contract StakingPlatform is Ownable(msg.sender) {
         // Initialize reward reserve in pool contract
         StakingPool(address(pool)).initializeRewards(initialRewardAmount);
 
-        emit PoolCreated(poolId, address(pool), msg.sender, stakingToken, stakingToken, aprBps, duration, endTime);
+        emit PoolCreated(poolId, address(pool), msg.sender, stakingToken, stakingToken, aprBps, duration, endTime, quoteSigner, signature);
         
         // Forward creation fee to treasury
         if (msg.value > 0) {
