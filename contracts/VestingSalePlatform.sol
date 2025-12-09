@@ -29,6 +29,8 @@ struct PurchaseInfo {
 ///         stable (USDT / USD1) with linear (daily) vesting starting when the sale ends.
 contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 	using SafeERC20 for IERC20;
+	using ECDSA for bytes32;
+	using MessageHashUtils for bytes32;
 
 	// -----------------------
 	// Platform configuration
@@ -81,7 +83,8 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 		uint256 discount,
 		uint256 startTime,
 		uint256 endTime,
-		uint256 vestingDuration
+		uint256 vestingDuration,
+		bytes signature
 	);
 
 	/// @notice Emitted when treasury updated
@@ -165,34 +168,45 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 		quoteSigner = _signer;
 	}
 
-	// -----------------------
-	// Sale creation
-	// -----------------------
-
-	/// @notice Create a new sale. Requires SALE_CREATION_FEE paid in ETH.
-	/// @param token Token to sell (ERC20)
-	/// @param currency Payment currency type (NATIVE/USDT/USD1)
-	/// @param vestingDuration Linear vesting duration in seconds (starts when sale ends)
-	/// @param hardCap Hard cap in token units (1eTokenDecimals). Reaching this ends the sale early.
-	/// @param discount Discount percentage in basis points (e.g., 500 = 5%)
-	function createSale(
+	/// @notice Create a new sale, requiring a backend validation signature that attests
+	///         the token/currency pair has valid liquidity at the time of signing.
+	/// @dev The signature is produced off-chain by quoteSigner as:
+	///      keccak256(abi.encode(chainId, token, currency, projectOwner, deadline))
+	///      and signed via eth_sign (Ethereum Signed Message prefix).
+	///      Including projectOwner (msg.sender) prevents signature reuse by others.
+	function createSaleValidated(
 		address token,
 		PaymentCurrency currency,
 		uint256 vestingDuration,
 		uint256 hardCap,
-		uint256 discount
+		uint256 discount,
+		uint256 deadline,
+		bytes calldata signature
 	) external payable nonReentrant returns (uint256 saleId, address saleAddress) {
+		require(block.timestamp <= deadline, "expired");
+		address signer = quoteSigner;
+		require(signer != address(0), "no-signer");
+
+		bytes32 digest = keccak256(
+			abi.encode(
+				block.chainid,
+				token,
+				currency,
+				msg.sender,
+				deadline
+			)
+		).toEthSignedMessageHash();
+		require(digest.recover(signature) == signer, "sig");
+
+		// Reuse the same validations and creation flow as createSale
 		require(msg.value == saleCreationFee, "fee");
 		require(token != address(0), "token=0");
 		require(vestingDuration >= 1 days, "vesting");
 		require(hardCap > 0, "hardCap");
-		require(discount <= 10_000, "discount"); // max 100%
-
-		// Validate currency availability
+		require(discount <= 10_000, "discount");
 		if (currency == PaymentCurrency.USDT) require(usdt != address(0), "usdt=0");
 		if (currency == PaymentCurrency.USD1) require(usd1 != address(0), "usd1=0");
 
-		// Deploy child sale
 		VestingSale child = new VestingSale(
 			address(this),
 			msg.sender,
@@ -205,7 +219,8 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 			discount
 		);
 
-		// Persist meta
+		IERC20(token).safeTransferFrom(msg.sender, address(child), hardCap);
+
 		Sale memory meta = Sale({
 			saleAddress: address(child),
 			projectOwner: msg.sender,
@@ -221,7 +236,6 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 			endedEarly: false
 		});
 
-		// Assign id and store
 		totalSalesCount += 1;
 		saleId = totalSalesCount;
 		sales[saleId] = meta;
@@ -237,10 +251,10 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 			discount,
 			meta.startTime,
 			meta.endTime,
-			vestingDuration
+			vestingDuration,
+			signature
 		);
 
-		// forward creation fee to treasury
 		(bool ok, ) = payable(treasury).call{value: msg.value}("");
 		require(ok, "fee-xfer");
 
@@ -307,7 +321,7 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 		return totalSalesCount;
 	}
 
-	/// @notice Satışların id listesini aralıkla döndürür [fromId, toId] (dahil)
+	/// @notice Returns sale IDs in range [fromId, toId] (inclusive)
 	function getSalesInRange(uint256 fromId, uint256 toId) external view returns (Sale[] memory list) {
 		require(toId >= fromId, "range");
 		require(toId <= totalSalesCount, "oob");
@@ -318,12 +332,12 @@ contract VestingSalePlatform is Ownable(msg.sender), ReentrancyGuard {
 		}
 	}
 
-	/// @notice Tekil satış verisini döndürür (struct olarak)
+	/// @notice Returns individual sale data (as struct)
 	function getSaleByIndex(uint256 saleId) external view returns (Sale memory) {
 		return sales[saleId];
 	}
 
-	/// @notice Kullanıcının katıldığı satışların id listesi
+	/// @notice Returns list of sale IDs that the user participated in
 	function getUserSaleIds(address user) external view returns (uint256[] memory) {
 		return _userSaleIds[user];
 	}

@@ -26,6 +26,9 @@ contract StakingPlatform is Ownable(msg.sender) {
     /// @notice Backend signer for stake quotes
     address public quoteSigner;
 
+    /// @notice Backend signer for pool creation validation
+    address public validationSigner;
+
     /// @notice Basic pool metadata stored in factory for discovery
     struct PoolMeta {
         address poolAddress;
@@ -67,7 +70,6 @@ contract StakingPlatform is Ownable(msg.sender) {
         uint256 aprBps,
         uint256 duration,
         uint256 endTime,
-        address quoteSigner,
         bytes signature
     );
 
@@ -91,9 +93,6 @@ contract StakingPlatform is Ownable(msg.sender) {
     
     /// @notice Emitted when pool creation fee is collected
     event FeeCollected(address indexed payer, uint256 amount);
-    
-    /// @notice Emitted when quote signer is changed
-    event QuoteSignerSet(address indexed oldSigner, address indexed newSigner);
 
     // --------- Constructor ---------
     
@@ -209,29 +208,65 @@ contract StakingPlatform is Ownable(msg.sender) {
     /// @notice Set quote signer address (only owner)
     /// @param _quoteSigner New quote signer address
     function setQuoteSigner(address _quoteSigner) external onlyOwner {
-        emit QuoteSignerSet(quoteSigner, _quoteSigner);
         quoteSigner = _quoteSigner;
     }
 
-    // --------- Create pool ---------
+    /// @notice Set validation signer address (only owner)
+    /// @param _validationSigner New validation signer address
+    function setValidationSigner(address _validationSigner) external onlyOwner {
+        validationSigner = _validationSigner;
+    }
 
-    function createPool(
+    /// @notice Create a new staking pool with backend validation signature
+    /// @dev The signature is produced off-chain by validationSigner as:
+    ///      keccak256(abi.encode(chainId, stakeToken, rewardToken, aprBps, endTime, projectOwner, deadline))
+    ///      and signed via eth_sign (Ethereum Signed Message prefix).
+    ///      Including projectOwner (msg.sender) prevents signature reuse by others.
+    /// @param stakingToken Token to be staked
+    /// @param aprBps APR in basis points (e.g., 500 = 5%)
+    /// @param endTime Pool end time as Unix timestamp
+    /// @param initialRewardAmount Initial reward tokens to deposit
+    /// @param deadline Signature expiration timestamp
+    /// @param signature Backend signature authorizing the pool creation
+    function createPoolValidated(
         address stakingToken,
         uint256 aprBps,
-        uint256 duration,
+        uint256 endTime,
         uint256 initialRewardAmount,
+        uint256 deadline,
         bytes calldata signature
     ) external payable returns (uint256 poolId, address poolAddress) {
+        require(block.timestamp <= deadline, "expired");
+        address signer = validationSigner;
+        require(signer != address(0), "no-signer");
+
+        // Verify backend signature
+        bytes32 digest = keccak256(
+            abi.encode(
+                block.chainid,
+                stakingToken,
+                stakingToken, // rewardToken same as stakingToken
+                aprBps,
+                endTime,
+                msg.sender, // owner
+                deadline
+            )
+        );
+        bytes32 ethSignedHash = MessageHashUtils.toEthSignedMessageHash(digest);
+        require(ECDSA.recover(ethSignedHash, signature) == signer, "sig");
+
+        // Reuse the same validations and creation flow as createPool
         require(msg.value >= poolCreationFee, "insufficient-fee");
         require(stakingToken != address(0), "stake=0");
+        require(endTime > block.timestamp, "endTime-past");
+        uint256 duration = endTime - block.timestamp;
         require(duration >= 1 days && duration <= 365 days, "duration");
         require(initialRewardAmount > 0, "no-rewards");
-        require(aprBps <= BPS_DENOM * 5, "apr-high"); // cap APR <= 500% to avoid obvious mistakes
+        require(aprBps <= BPS_DENOM * 5, "apr-high");
         
         // Emit fee collection event
         emit FeeCollected(msg.sender, msg.value);
 
-        uint256 endTime = block.timestamp + duration;
         StakingPool pool = new StakingPool(
             address(this),
             msg.sender,
@@ -244,7 +279,7 @@ contract StakingPlatform is Ownable(msg.sender) {
             poolAddress: address(pool),
             owner: msg.sender,
             stakingToken: stakingToken,
-            rewardToken: stakingToken, // reward token same as staking token
+            rewardToken: stakingToken,
             aprBps: aprBps,
             createdAt: block.timestamp,
             duration: duration,
@@ -266,7 +301,7 @@ contract StakingPlatform is Ownable(msg.sender) {
         // Initialize reward reserve in pool contract
         StakingPool(address(pool)).initializeRewards(initialRewardAmount);
 
-        emit PoolCreated(poolId, address(pool), msg.sender, stakingToken, stakingToken, aprBps, duration, endTime, quoteSigner, signature);
+        emit PoolCreated(poolId, address(pool), msg.sender, stakingToken, stakingToken, aprBps, duration, endTime, signature);
         
         // Forward creation fee to treasury
         if (msg.value > 0) {

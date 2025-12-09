@@ -1,590 +1,264 @@
-# Zetarium Smart Contracts
+# Zetarium Contracts
 
-**Decentralized Staking and Bond Platform on BNB Chain (BSC)**
+A comprehensive Solidity smart contract suite for token staking and vesting sale platforms on EVM-compatible blockchains.
 
-Zetarium smart contracts provide a secure, flexible, and user-friendly infrastructure for creating decentralized staking pools and token bond sales on Binance Smart Chain. Built with security-first principles and optimized for gas efficiency.
+## Overview
 
-## 📋 Table of Contents
+This repository contains two main contract systems:
 
-- [Overview](#-overview)
-- [Contracts](#-contracts)
-  - [StakingPlatform](#stakingplatform)
-  - [VestingSalePlatform](#vestingsaleplatform)
-- [Key Features](#-key-features)
-- [Security Features](#-security-features)
-- [Technical Specifications](#-technical-specifications)
-- [Contract Architecture](#-contract-architecture)
-- [Deployment](#-deployment)
-- [Usage Examples](#-usage-examples)
-- [Audits & Security](#-audits--security)
-- [License](#-license)
+1. **StakingPlatform** - A factory contract that deploys staking pools where users can stake tokens and earn APR-based rewards calculated per-second
+2. **VestingSalePlatform** - A factory contract that deploys token sale contracts with linear vesting schedules
 
----
+Both platforms use a factory pattern where the main contract deploys child contracts for each pool/sale, enabling efficient gas usage and modular design.
 
-## 🌟 Overview
-
-Zetarium smart contracts consist of two primary systems designed to empower DeFi projects and users on BNB Chain:
-
-1. **Staking Platform** - Factory-based staking pool system with APR rewards
-2. **Vesting Sale Platform** - Token bond/sale system with linear vesting
-
-Both platforms use a factory pattern for scalability, allowing anyone to create and manage their own pools/sales with minimal setup while maintaining security and transparency.
-
----
-
-## 📦 Contracts
+## Contracts
 
 ### StakingPlatform
 
-A comprehensive staking solution that enables projects to create their own staking pools with customizable parameters.
+A factory contract that creates and manages staking pools. Each pool allows users to stake a token and earn rewards based on a configurable APR (Annual Percentage Rate).
 
-#### **Core Features:**
-- ✅ **Factory Pattern** - Deploy unlimited staking pools
-- ✅ **Flexible APR** - Customizable annual percentage rate (up to 500%)
-- ✅ **Per-Second Rewards** - Precise reward calculation
-- ✅ **Time-Bounded Pools** - Set pool duration (1-365 days)
-- ✅ **Emergency Controls** - 24-hour timelock for emergency withdrawals
-- ✅ **User Tracking** - Real-time tracking of active stakes
-- ✅ **Pool Discovery** - Query pools by range, owner, or user participation
+#### Key Features
 
-#### **Smart Contract Components:**
+- **Factory Pattern**: Deploys individual `StakingPool` contracts for each staking opportunity
+- **Per-Second APR Calculation**: Rewards are calculated per-second for precise accrual
+- **Backend Signature Validation**: Pool creation requires backend validation signature
+- **Quote-Based Staking**: Users can stake with backend-signed quotes for additional validation
+- **Emergency Controls**: Factory owner can initiate emergency withdrawals with 24-hour timelock
+- **User Tracking**: Tracks user participation across multiple pools
+- **Reward Reserve System**: Pre-allocated reward reserves ensure reward availability
 
-**StakingPlatform (Factory)**
-- Pool creation and registry
-- User participation tracking
-- Emergency withdrawal controls
-- Treasury management
-- Fee collection (0.002 BNB default)
+#### Main Functions
 
-**StakingPool (Child Contract)**
-- Stake/unstake functionality
-- Automated reward accrual
-- Claim rewards
-- Pool statistics and analytics
-- Reward reserve management
+- `createPoolValidated()` - Create a new staking pool with backend signature validation
+- `stake()` / `stakeWithQuote()` - Stake tokens (with optional quote validation)
+- `unstake()` - Unstake all tokens and claim pending rewards
+- `claim()` - Claim accrued rewards without unstaking
+- `setActive()` - Pool owner can pause/resume rewards
+- `setAprBps()` - Pool owner can update APR
+- `fundRewards()` - Pool owner can add more reward tokens
 
-#### **Key Parameters:**
-```solidity
-- poolCreationFee: 0.002 BNB (configurable)
-- aprBps: Basis points (e.g., 500 = 5% APR, max 50000 = 500%)
-- duration: 1 day to 365 days
-- EMERGENCY_DELAY: 24 hours
-```
+#### Security Features
 
----
+- Reentrancy protection on all external functions
+- Signature-based validation for pool creation and staking
+- Emergency withdrawal mechanism with timelock
+- Protected user funds during emergency withdrawals
 
 ### VestingSalePlatform
 
-A secure token sale platform with built-in vesting mechanism, perfect for token launches, bond offerings, and fundraising.
+A factory contract that creates token sale contracts with linear vesting schedules. Supports multiple payment currencies (ETH, USDT, USD1).
 
-#### **Core Features:**
-- ✅ **Multi-Currency Support** - Accept BNB, USDT, or custom stablecoins
-- ✅ **Off-Chain Quote Signing** - Secure price oracles via ECDSA signatures
-- ✅ **Linear Vesting** - Daily unlock schedule post-sale
-- ✅ **Hard Cap Protection** - Automatic sale termination
-- ✅ **Discount Mechanism** - Configurable discount (0-100%)
-- ✅ **1% Platform Fee** - Transparent fee structure
-- ✅ **Emergency Controls** - Factory owner safety mechanisms
-- ✅ **Nonce Protection** - Prevent replay attacks
+#### Key Features
 
-#### **Smart Contract Components:**
+- **Factory Pattern**: Deploys individual `VestingSale` contracts for each sale
+- **Multiple Payment Currencies**: Supports native ETH, USDT, and USD1
+- **Linear Vesting**: Tokens vest linearly over a configurable duration after sale ends
+- **Backend Quote System**: Purchase requires backend-signed quote for pricing
+- **Hard Cap Protection**: Sales automatically end when hard cap is reached
+- **Platform Fee**: 1% fee on proceeds (configurable)
+- **Early Sale End**: Sales can end early if hard cap is reached
 
-**VestingSalePlatform (Factory)**
-- Sale creation and registry
-- User participation tracking
-- Quote signer management
-- Fee collection and distribution
-- Emergency withdrawal controls
+#### Main Functions
 
-**VestingSale (Child Contract)**
-- Purchase with signed quotes
-- Linear vesting mechanism
-- Claim vested tokens
-- Proceeds withdrawal
-- Unsold token recovery
+- `createSaleValidated()` - Create a new sale with backend signature validation
+- `buyWithQuote()` - Purchase tokens using backend-signed quote
+- `claim()` - Claim vested tokens
+- `withdrawProceeds()` - Project owner withdraws raised funds (after sale ends)
+- `withdrawUnsoldTokens()` - Project owner withdraws unsold tokens
 
-#### **Key Parameters:**
-```solidity
-- saleCreationFee: 0.002 BNB (configurable)
-- defaultSaleDuration: 180 days (configurable)
-- platformFee: 1% (100 basis points)
-- vestingDuration: Minimum 1 day
-- discount: 0-10000 basis points (0-100%)
-```
+#### Security Features
 
----
+- Reentrancy protection
+- Sequential nonce system prevents signature replay attacks
+- Chain ID included in signatures to prevent cross-chain replay
+- Emergency withdrawal controls for factory owner
 
-## 🎯 Key Features
-
-### Factory Pattern Architecture
-Both platforms use factory contracts to deploy child contracts, enabling:
-- Unlimited pool/sale creation
-- Centralized registry and discovery
-- Consistent security model
-- Efficient gas usage
-- Easy upgradability through new factories
-
-### Real-Time Reward Calculation
-StakingPlatform calculates rewards per-second with high precision:
-```
-Reward = (stakedAmount × aprBps × timeElapsed) / (10000 × 365 days)
-```
-
-### Secure Quote System
-VestingSalePlatform uses ECDSA signature verification:
-- Off-chain price calculation
-- On-chain signature verification
-- Nonce-based replay protection
-- Chain ID validation
-- Deadline enforcement
-
-### Comprehensive User Tracking
-- Track user participation across all pools/sales
-- Query active stakes per user
-- Historical claim data
-- Pool/sale discovery by owner
-
----
-
-## 🔐 Security Features
-
-### Reentrancy Protection
-- All critical functions protected with `ReentrancyGuard`
-- SafeERC20 for all token transfers
-- Checks-Effects-Interactions pattern
-
-### Access Control
-- OpenZeppelin `Ownable` for admin functions
-- Multi-level access: Factory owner, Pool/Sale owner
-- Emergency controls with timelock
-
-### Emergency Mechanisms
-**StakingPlatform:**
-- 24-hour timelock before emergency withdrawal
-- Protected user funds (staked + reserved rewards)
-- Only excess tokens withdrawable
-- Cancellable emergency withdrawals
-
-**VestingSalePlatform:**
-- Factory owner emergency controls
-- Separate ETH and ERC20 withdrawal functions
-- Protected user allocations
-
-### Input Validation
-- Range checks on all numeric inputs
-- Zero address validation
-- Duration limits (1-365 days)
-- APR caps (max 500%)
-- Discount limits (max 100%)
-
-### Overflow Protection
-- Solidity 0.8.24+ built-in overflow checks
-- Safe mathematical operations
-- Precise decimal handling
-
----
-
-## 🛠 Technical Specifications
-
-### Blockchain
-- **Network**: Binance Smart Chain (BSC)
-- **Chain ID**: 56 (Mainnet) / 97 (Testnet)
-- **Standard**: BEP-20 (ERC-20 compatible)
-
-### Solidity Version
-- **Compiler**: `^0.8.24`
-- **Optimization**: Enabled (200 runs recommended)
-
-### Dependencies
-```json
-{
-  "@openzeppelin/contracts": "^5.0.0"
-}
-```
-
-**OpenZeppelin Contracts Used:**
-- `Ownable` - Access control
-- `ReentrancyGuard` - Reentrancy protection
-- `IERC20` / `IERC20Metadata` - Token interfaces
-- `SafeERC20` - Safe token operations
-- `ECDSA` / `MessageHashUtils` - Signature verification
-
-### Gas Optimization
-- Immutable variables where applicable
-- Efficient storage packing
-- Minimal SLOAD operations
-- Batch operations support
-
----
-
-## 🏗 Contract Architecture
-
-### StakingPlatform Flow
-
-```
-User → StakingPlatform.createPool() 
-         ↓
-     Deploys StakingPool
-         ↓
-User → StakingPool.stake()
-         ↓
-     Accrues rewards per-second
-         ↓
-User → StakingPool.claim() / unstake()
-```
-
-### VestingSalePlatform Flow
-
-```
-Project → VestingSalePlatform.createSale()
-            ↓
-        Deploys VestingSale
-            ↓
-Backend → Signs purchase quote
-            ↓
-User → VestingSale.buyWithQuote()
-            ↓
-       Sale ends (time/hardcap)
-            ↓
-User → VestingSale.claim() (linear vesting)
-            ↓
-Project → VestingSale.withdrawProceeds()
-```
-
----
-
-## 🚀 Deployment
+## Installation
 
 ### Prerequisites
+
+- Node.js (v16+)
+- npm or yarn
+- Hardhat or Foundry (for compilation and testing)
+
+### Setup
+
 ```bash
-npm install @openzeppelin/contracts
+# Install dependencies
+npm install
+
+# Compile contracts
+npx hardhat compile
+
+# Run tests (if available)
+npx hardhat test
 ```
 
-### Deployment Order
+## Usage
 
-**1. StakingPlatform**
-```solidity
-constructor(address _treasury)
-```
-Parameters:
-- `_treasury`: Address to receive pool creation fees
+### StakingPlatform
 
-**2. VestingSalePlatform**
-```solidity
-constructor(address _treasury, address _usdt, address _usd1)
-```
-Parameters:
-- `_treasury`: Address to receive fees
-- `_usdt`: USDT token address (or zero)
-- `_usd1`: Custom stablecoin address (or zero)
-
-Post-deployment:
-```solidity
-// Set quote signer for VestingSalePlatform
-vestingSalePlatform.setQuoteSigner(signerAddress);
-```
-
-### Network Addresses
-
-**BSC Mainnet:**
-```
-StakingPlatform: [To be deployed]
-VestingSalePlatform: [To be deployed]
-```
-
-**BSC Testnet:**
-```
-StakingPlatform: [To be deployed]
-VestingSalePlatform: [To be deployed]
-```
-
----
-
-## 💡 Usage Examples
-
-### Creating a Staking Pool
+#### Creating a Pool
 
 ```solidity
-// Approve reward tokens first
-IERC20(rewardToken).approve(stakingPlatform, initialRewardAmount);
+// Pool creator must:
+// 1. Get backend signature for pool creation
+// 2. Transfer initial reward tokens to factory
+// 3. Call createPoolValidated with signature
 
-// Create pool
-(uint256 poolId, address poolAddress) = stakingPlatform.createPool{value: 0.002 ether}(
-    stakingToken,        // Address of token to stake
-    500,                 // APR in basis points (5%)
-    90 days,             // Pool duration
-    1_000_000 * 1e18     // Initial reward amount
+stakingPlatform.createPoolValidated(
+    stakingToken,
+    aprBps,           // e.g., 500 for 5% APR
+    endTime,          // Unix timestamp
+    initialRewardAmount,
+    deadline,         // Signature expiration
+    signature         // Backend signature
 );
 ```
 
-### Staking Tokens
+#### Staking
 
 ```solidity
-// Approve staking tokens
-IERC20(stakingToken).approve(poolAddress, amount);
+// Simple stake
+stakingPool.stake(amount);
 
-// Stake
-StakingPool(poolAddress).stake(amount);
-
-// Check rewards
-(uint256 staked, uint256 claimable, uint256 claimed, uint256 lastUpdate) = 
-    StakingPool(poolAddress).getUserStake(userAddress);
-
-// Claim rewards
-StakingPool(poolAddress).claim();
-
-// Unstake (claims rewards + returns stake)
-StakingPool(poolAddress).unstake();
+// Stake with quote (requires backend signature)
+stakingPool.stakeWithQuote(
+    amount,
+    deadline,
+    nonce,
+    signature
+);
 ```
 
-### Creating a Token Sale
+#### Claiming Rewards
 
 ```solidity
-// Create sale
-(uint256 saleId, address saleAddress) = vestingSalePlatform.createSale{value: 0.002 ether}(
-    tokenAddress,           // Token being sold
-    PaymentCurrency.NATIVE, // Accept BNB
-    90 days,                // Vesting duration
-    10_000_000 * 1e18,      // Hard cap
-    500                     // 5% discount
-);
+// Claim accrued rewards
+stakingPool.claim();
 
-// Fund sale with tokens
-IERC20(tokenAddress).transfer(saleAddress, amount);
+// Or unstake and claim together
+stakingPool.unstake();
 ```
 
-### Purchasing with Quote
+### VestingSalePlatform
 
-```javascript
-// Backend signs quote
-const message = ethers.utils.solidityKeccak256(
-    ['uint256', 'address', 'address', 'address', 'uint256', 'uint256', 'uint256', 'uint256'],
-    [chainId, saleAddress, buyer, paymentToken, paymentAmount, tokensOut, deadline, nonce]
+#### Creating a Sale
+
+```solidity
+// Sale creator must:
+// 1. Get backend signature for sale creation
+// 2. Transfer hardCap tokens to factory
+// 3. Pay creation fee
+// 4. Call createSaleValidated
+
+vestingSalePlatform.createSaleValidated{value: creationFee}(
+    token,
+    currency,         // PaymentCurrency.NATIVE, USDT, or USD1
+    vestingDuration,  // e.g., 180 days
+    hardCap,          // Total tokens to sell
+    discount,         // Discount in basis points
+    deadline,         // Signature expiration
+    signature         // Backend signature
 );
-const signature = await signer.signMessage(ethers.utils.arrayify(message));
+```
 
-// User purchases
-await vestingSale.buyWithQuote(
-    paymentToken,
+#### Purchasing Tokens
+
+```solidity
+// Purchase requires backend quote signature
+vestingSale.buyWithQuote{value: paymentAmount}(
+    paymentToken,      // address(0) for ETH
     paymentAmount,
     tokensOut,
     deadline,
     nonce,
-    signature,
-    { value: paymentAmount } // if BNB
+    signature
 );
 ```
 
-### Claiming Vested Tokens
+#### Claiming Vested Tokens
 
 ```solidity
-// Check claimable amount
-uint256 claimableAmount = VestingSale(saleAddress).claimable(userAddress);
-
-// Claim
-VestingSale(saleAddress).claim();
+// Claim vested tokens (only after sale ends)
+vestingSale.claim();
 ```
 
----
+## Architecture
 
-## 📊 View Functions
+### Factory Pattern
 
-### StakingPlatform Views
+Both platforms use a factory pattern:
 
-```solidity
-// Pool discovery
-totalPools() → uint256
-getPoolsInRange(fromId, toId) → PoolMeta[]
-getPoolByIndex(poolId) → PoolMeta
-getOwnerPoolIds(owner) → uint256[]
-getUserActivePools(user) → uint256[]
+- **Factory Contract**: Manages registry, metadata, and deployment
+- **Child Contracts**: Individual pools/sales with their own state
+- **Mirroring**: Child contracts update factory with lightweight stats
 
-// Pool stats
-StakingPool.getPoolStats() → (...)
-StakingPool.getUserStake(user) → (amount, claimable, claimed, lastUpdate)
-StakingPool.getRewardAnalysis() → (totalAllocated, distributed, remaining, ...)
-```
+### Signature System
 
-### VestingSalePlatform Views
+Both platforms use ECDSA signatures for:
 
-```solidity
-// Sale discovery
-totalSales() → uint256
-getSalesInRange(fromId, toId) → Sale[]
-getSaleByIndex(saleId) → Sale
-getUserSaleIds(user) → uint256[]
+- **Pool/Sale Creation**: Backend validates token/parameters before creation
+- **Staking/Purchasing**: Backend provides pricing quotes via signatures
 
-// Sale data
-VestingSale.getBuyerInfo(user) → (PurchaseInfo, pending)
-VestingSale.vestedAmount(user) → uint256
-VestingSale.claimable(user) → uint256
-VestingSale.isActive() → bool
-VestingSale.hasEnded() → bool
-```
+Signatures include:
+- Chain ID (prevents cross-chain replay)
+- User address (prevents signature reuse)
+- Nonce (prevents replay attacks)
+- Deadline (expiration protection)
 
----
+## Security Considerations
 
-## 🔍 Audits & Security
+### Audited Libraries
 
-### Security Measures Implemented
-- ✅ Reentrancy guards on all state-changing functions
-- ✅ SafeERC20 for token operations
-- ✅ Access control with OpenZeppelin Ownable
-- ✅ Emergency withdrawal timelocks
-- ✅ Input validation and bounds checking
-- ✅ Nonce-based replay attack prevention
-- ✅ Chain ID validation for signatures
-- ✅ Protected user funds in emergency scenarios
+Both contracts use OpenZeppelin's audited libraries:
+- `Ownable` - Access control
+- `ReentrancyGuard` - Reentrancy protection
+- `SafeERC20` - Safe token transfers
+- `ECDSA` - Signature verification
 
-### Recommended Security Practices
-1. **Audit**: Get contracts audited by reputable firms before mainnet deployment
-2. **Testing**: Comprehensive unit and integration tests
-3. **Testnet**: Deploy and test thoroughly on BSC testnet
-4. **Monitoring**: Monitor contracts for unusual activity post-deployment
-5. **Multisig**: Use multisig wallets for factory ownership
-6. **Upgradability**: Consider proxy patterns for critical parameters
+### Best Practices
 
-### Known Limitations
-- Quote signer private key must be secured (VestingSalePlatform)
-- Pool creators must fund reward reserves adequately (StakingPlatform)
-- Emergency withdrawals require 24-hour timelock (StakingPlatform)
+- Always verify signatures off-chain before submitting transactions
+- Use sequential nonces to prevent replay attacks
+- Monitor emergency withdrawal timelocks
+- Validate all parameters before contract interactions
 
----
+## Configuration
 
-## 🌐 Integration
+### StakingPlatform
 
-### Frontend Integration
+- `poolCreationFee`: Default 0.002 ETH (configurable by owner)
+- `EMERGENCY_DELAY`: 24 hours timelock for emergency withdrawals
+- `MAX_APR`: 500% (50,000 basis points)
 
-**Web3 Libraries:**
-- Viem 2.37+ (recommended)
-- Wagmi 2.17+ (React hooks)
-- Ethers.js 6.x (alternative)
+### VestingSalePlatform
 
-**Example with Viem:**
-```typescript
-import { createPublicClient, http } from 'viem';
-import { bsc } from 'viem/chains';
+- `saleCreationFee`: Default 0.002 ETH (configurable by owner)
+- `FEE_BPS`: 100 basis points (1% platform fee)
+- `defaultSaleDuration`: 180 days (6 months, configurable)
 
-const client = createPublicClient({
-  chain: bsc,
-  transport: http()
-});
+## Events
 
-// Read pool stats
-const poolStats = await client.readContract({
-  address: poolAddress,
-  abi: StakingPoolABI,
-  functionName: 'getPoolStats'
-});
-```
+Both platforms emit comprehensive events for:
+- Pool/Sale creation
+- User actions (stake, purchase, claim)
+- Admin actions (fee changes, emergency controls)
+- State changes (active status, APR updates)
 
----
+## License
 
-## 📝 Events
+MIT License - see LICENSE file for details
 
-### StakingPlatform Events
-```solidity
-event PoolCreated(uint256 indexed poolId, address indexed poolAddress, ...);
-event PoolMirrored(uint256 indexed poolId, uint256 totalStaked, ...);
-event EmergencyInitiated(uint256 indexed poolId, uint256 executeAfter);
-event EmergencyExecuted(uint256 indexed poolId);
-event Staked(address indexed user, uint256 amount);
-event Unstaked(address indexed user, uint256 amount);
-event Claimed(address indexed user, uint256 amount);
-```
+## Contributing
 
-### VestingSalePlatform Events
-```solidity
-event SaleCreated(uint256 indexed saleId, address indexed saleAddress, ...);
-event Purchased(uint256 indexed saleId, address indexed buyer, ...);
-event Claimed(uint256 indexed saleId, address indexed buyer, uint256 claimedAmount);
-event ProceedsWithdrawn(uint256 indexed saleId, address indexed projectOwner, ...);
-event EndedEarly(uint256 when);
-```
+Contributions are welcome! Please ensure:
+- Code follows Solidity style guide
+- All functions have NatSpec documentation
+- Tests are included for new features
+- Security best practices are followed
 
----
+## Support
 
-## 🤝 Contributing
-
-This is a production-ready smart contract system. For improvements or bug reports:
-
-1. Review the code thoroughly
-2. Create detailed issue reports
-3. Propose changes via pull requests
-4. Include comprehensive tests
-
----
-
-## 📄 License
-
-```
-SPDX-License-Identifier: MIT
-```
-
-This project is licensed under the MIT License. See the LICENSE file for details.
-
----
-
-## 📞 Contact & Links
-
-- **Website**: [https://zetarium.world](https://zetarium.world)
-- **Documentation**: [https://whitepaper.zetarium.world](https://whitepaper.zetarium.world)
-- **Twitter**: [@Zetarium](https://twitter.com/zetarium_)
-- **GitHub**: [Zetarium Contracts](https://github.com/ZetariumWorld)
-
----
-
-## ⚠️ Disclaimer
-
-These smart contracts are provided as-is. While built with security best practices:
-
-- **Not Audited**: Contracts have not been audited by third-party security firms
-- **Use at Own Risk**: Users and projects deploy/interact at their own risk
-- **No Warranty**: No guarantees of fitness for any particular purpose
-- **DeFi Risks**: All DeFi platforms carry inherent risks including smart contract bugs, economic attacks, and market volatility
-
-**Recommendations:**
-- Conduct thorough testing before mainnet deployment
-- Obtain professional security audits
-- Use testnet for initial deployment and testing
-- Start with small amounts to verify functionality
-- Never invest more than you can afford to lose
-
----
-
-## 🔧 Contract Addresses
-
-### BSC Mainnet (Chain ID: 56)
-```
-StakingPlatform:        [Pending Deployment]
-VestingSalePlatform:    [Pending Deployment]
-Treasury:               [To Be Announced]
-```
-
-### BSC Testnet (Chain ID: 97)
-```
-StakingPlatform:        [Pending Deployment]
-VestingSalePlatform:    [Pending Deployment]
-Treasury:               [To Be Announced]
-```
-
----
-
-## 📚 Additional Resources
-
-### Documentation
-- [Solidity Documentation](https://docs.soliditylang.org/)
-- [OpenZeppelin Contracts](https://docs.openzeppelin.com/contracts/)
-- [BNB Chain Developer Docs](https://docs.bnbchain.org/)
-
-### Tools
-- [Remix IDE](https://remix.ethereum.org/)
-- [Hardhat](https://hardhat.org/)
-- [BSCScan](https://bscscan.com/)
-
----
-
-**Built with ❤️ for the BNB Chain ecosystem**
-
-*Empowering decentralized finance through secure, flexible, and user-friendly smart contracts.*
+For issues, questions, or contributions, please open an issue on GitHub.
 
