@@ -262,3 +262,6 @@ Contributions are welcome! Please ensure:
 
 For issues, questions, or contributions, please open an issue on GitHub.
 
+
+Built on BNB Chain
+
