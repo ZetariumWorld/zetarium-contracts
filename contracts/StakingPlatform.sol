@@ -372,6 +372,7 @@ contract StakingPool is ReentrancyGuard {
     uint8 public immutable rewardDecimals; // reward token decimals
     uint256 public aprBps; // APR in basis points
     bool public active; // if false, no new stake and rewards stop accruing from setActive(false) time
+    uint256 public deactivatedAt; // timestamp when pool was deactivated (0 = never)
 
     // Pool aggregates
     uint256 public totalStaked;
@@ -436,6 +437,9 @@ contract StakingPool is ReentrancyGuard {
     // --------- Admin ---------
 
     function setActive(bool _active) external onlyOwner {
+        if (!_active && active) {
+            deactivatedAt = block.timestamp;
+        }
         active = _active;
         _updateMirror();
         emit ActiveSet(_active);
@@ -627,8 +631,19 @@ contract StakingPool is ReentrancyGuard {
             return;
         }
         if (!active) {
-            // When pool inactive, do not accrue beyond lastUpdate
-            u.lastUpdate = nowTs; // still advance marker to avoid reprocessing past periods
+            // Accrue rewards earned BEFORE deactivation so users don't lose them
+            if (deactivatedAt > last && u.amount > 0) {
+                uint256 dt = deactivatedAt - last;
+                uint256 reward = (u.amount * aprBps * dt) / (BPS_DENOM * YEAR);
+                if (rewardReserve >= reward) {
+                    u.pending += reward;
+                    rewardReserve -= reward;
+                } else if (rewardReserve > 0) {
+                    u.pending += rewardReserve;
+                    rewardReserve = 0;
+                }
+            }
+            u.lastUpdate = nowTs;
             return;
         }
         if (u.amount == 0) {
@@ -666,6 +681,7 @@ contract StakingPool is ReentrancyGuard {
         
         // Check if pool expired
         if (block.timestamp >= endTime) {
+            deactivatedAt = endTime;
             active = false;
             emit ActiveSet(false);
         }
@@ -676,6 +692,7 @@ contract StakingPool is ReentrancyGuard {
         
         // Check if pool expired
         if (block.timestamp >= endTime) {
+            deactivatedAt = endTime;
             active = false;
             emit ActiveSet(false);
         }
@@ -705,8 +722,19 @@ contract StakingPool is ReentrancyGuard {
         claimed = u.claimed;
         lastClaimTs = u.lastUpdate;
         // simulate accrue
-        if (u.lastUpdate == 0 || u.amount == 0 || !active) {
+        if (u.lastUpdate == 0 || u.amount == 0) {
             return (amount, u.pending, claimed, lastClaimTs);
+        }
+        if (!active) {
+            if (deactivatedAt > u.lastUpdate) {
+                uint256 dt = deactivatedAt - u.lastUpdate;
+                uint256 reward = (u.amount * aprBps * dt) / (BPS_DENOM * YEAR);
+                uint256 cappedReward = reward <= rewardReserve ? reward : rewardReserve;
+                claimable = u.pending + cappedReward;
+            } else {
+                claimable = u.pending;
+            }
+            return (amount, claimable, claimed, lastClaimTs);
         }
         uint256 accrueUntil = block.timestamp > endTime ? endTime : block.timestamp;
         if (accrueUntil <= u.lastUpdate) {
